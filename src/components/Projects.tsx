@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -24,6 +24,7 @@ import {
   Select,
   MenuItem,
   LinearProgress,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -31,62 +32,15 @@ import {
   Delete as DeleteIcon,
   Business as BusinessIcon,
 } from '@mui/icons-material';
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  status: 'Planning' | 'In Progress' | 'Completed' | 'On Hold';
-  startDate: string;
-  endDate: string;
-  assignedEngineers: number;
-  requiredEngineers: number;
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  budget: number;
-}
+import { toast } from 'react-toastify';
+import { projectService, type Project } from '../services/projectService';
 
 const Projects: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>([
-    {
-      id: '1',
-      name: 'Project Alpha',
-      description: 'E-commerce platform development',
-      status: 'In Progress',
-      startDate: '2024-01-15',
-      endDate: '2024-06-30',
-      assignedEngineers: 3,
-      requiredEngineers: 5,
-      priority: 'High',
-      budget: 50000,
-    },
-    {
-      id: '2',
-      name: 'Project Beta',
-      description: 'Mobile app for healthcare',
-      status: 'Planning',
-      startDate: '2024-03-01',
-      endDate: '2024-08-31',
-      assignedEngineers: 0,
-      requiredEngineers: 4,
-      priority: 'Critical',
-      budget: 75000,
-    },
-    {
-      id: '3',
-      name: 'Project Gamma',
-      description: 'Data analytics dashboard',
-      status: 'Completed',
-      startDate: '2023-10-01',
-      endDate: '2024-02-28',
-      assignedEngineers: 2,
-      requiredEngineers: 2,
-      priority: 'Medium',
-      budget: 30000,
-    },
-  ]);
-
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -97,6 +51,16 @@ const Projects: React.FC = () => {
     priority: 'Medium' as Project['priority'],
     budget: '',
   });
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    const unsubscribe = projectService.subscribeToProjects((projects) => {
+      setProjects(projects);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleOpen = (project?: Project) => {
     if (project) {
@@ -130,33 +94,56 @@ const Projects: React.FC = () => {
   const handleClose = () => {
     setOpen(false);
     setEditingProject(null);
+    setSubmitting(false);
   };
 
-  const handleSubmit = () => {
-    const newProject: Project = {
-      id: editingProject?.id || Date.now().toString(),
-      name: formData.name,
-      description: formData.description,
-      status: formData.status,
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      assignedEngineers: editingProject?.assignedEngineers || 0,
-      requiredEngineers: parseInt(formData.requiredEngineers),
-      priority: formData.priority,
-      budget: parseInt(formData.budget),
-    };
-
-    if (editingProject) {
-      setProjects(projects.map(proj => proj.id === editingProject.id ? newProject : proj));
-    } else {
-      setProjects([...projects, newProject]);
+  const handleSubmit = async () => {
+    if (!formData.name || !formData.description || !formData.startDate || !formData.endDate || !formData.requiredEngineers || !formData.budget) {
+      toast.error('Please fill in all required fields');
+      return;
     }
 
-    handleClose();
+    setSubmitting(true);
+    try {
+      const projectData = {
+        name: formData.name,
+        description: formData.description,
+        status: formData.status,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        assignedEngineers: editingProject?.assignedEngineers || 0,
+        requiredEngineers: parseInt(formData.requiredEngineers),
+        priority: formData.priority,
+        budget: parseInt(formData.budget),
+      };
+
+      if (editingProject) {
+        await projectService.updateProject(editingProject.id!, projectData);
+        toast.success('Project updated successfully!');
+      } else {
+        await projectService.addProject(projectData);
+        toast.success('Project added successfully!');
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Error saving project:', error);
+      toast.error(editingProject ? 'Failed to update project' : 'Failed to add project');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setProjects(projects.filter(proj => proj.id !== id));
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this project?')) {
+      try {
+        await projectService.deleteProject(id);
+        toast.success('Project deleted successfully!');
+      } catch (error) {
+        console.error('Error deleting project:', error);
+        toast.error('Failed to delete project');
+      }
+    }
   };
 
   const getStatusColor = (status: Project['status']) => {
@@ -183,6 +170,14 @@ const Projects: React.FC = () => {
   const activeProjects = projects.filter(p => p.status === 'In Progress').length;
   const completedProjects = projects.filter(p => p.status === 'Completed').length;
   const totalBudget = projects.reduce((sum, p) => sum + p.budget, 0);
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -258,59 +253,67 @@ const Projects: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {projects.map((project) => (
-              <TableRow key={project.id}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <BusinessIcon sx={{ mr: 1 }} />
-                    {project.name}
-                  </Box>
-                </TableCell>
-                <TableCell>{project.description}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={project.status}
-                    color={getStatusColor(project.status)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={project.priority}
-                    color={getPriorityColor(project.priority)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  {project.assignedEngineers}/{project.requiredEngineers}
-                </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Box sx={{ width: '100%', mr: 1 }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={(project.assignedEngineers / project.requiredEngineers) * 100}
-                        sx={{ height: 8, borderRadius: 5 }}
-                      />
-                    </Box>
-                    <Box sx={{ minWidth: 35 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        {Math.round((project.assignedEngineers / project.requiredEngineers) * 100)}%
-                      </Typography>
-                    </Box>
-                  </Box>
-                </TableCell>
-                <TableCell>${project.budget.toLocaleString()}</TableCell>
-                <TableCell>
-                  <IconButton onClick={() => handleOpen(project)} size="small">
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton onClick={() => handleDelete(project.id)} size="small" color="error">
-                    <DeleteIcon />
-                  </IconButton>
+            {projects.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center">
+                  <Typography color="textSecondary">No projects found</Typography>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              projects.map((project) => (
+                <TableRow key={project.id}>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <BusinessIcon sx={{ mr: 1 }} />
+                      {project.name}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{project.description}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={project.status}
+                      color={getStatusColor(project.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={project.priority}
+                      color={getPriorityColor(project.priority)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {project.assignedEngineers}/{project.requiredEngineers}
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ width: '100%', mr: 1 }}>
+                        <LinearProgress
+                          variant="determinate"
+                          value={project.requiredEngineers > 0 ? (project.assignedEngineers / project.requiredEngineers) * 100 : 0}
+                          sx={{ height: 8, borderRadius: 5 }}
+                        />
+                      </Box>
+                      <Box sx={{ minWidth: 35 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {project.requiredEngineers > 0 ? Math.round((project.assignedEngineers / project.requiredEngineers) * 100) : 0}%
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </TableCell>
+                  <TableCell>${project.budget.toLocaleString()}</TableCell>
+                  <TableCell>
+                    <IconButton onClick={() => handleOpen(project)} size="small">
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton onClick={() => handleDelete(project.id!)} size="small" color="error">
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
@@ -327,6 +330,7 @@ const Projects: React.FC = () => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               fullWidth
+              required
             />
             <TextField
               label="Description"
@@ -335,6 +339,7 @@ const Projects: React.FC = () => {
               fullWidth
               multiline
               rows={3}
+              required
             />
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
@@ -355,6 +360,7 @@ const Projects: React.FC = () => {
               value={formData.startDate}
               onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
               fullWidth
+              required
               InputLabelProps={{ shrink: true }}
             />
             <TextField
@@ -363,6 +369,7 @@ const Projects: React.FC = () => {
               value={formData.endDate}
               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
               fullWidth
+              required
               InputLabelProps={{ shrink: true }}
             />
             <TextField
@@ -371,6 +378,8 @@ const Projects: React.FC = () => {
               value={formData.requiredEngineers}
               onChange={(e) => setFormData({ ...formData, requiredEngineers: e.target.value })}
               fullWidth
+              required
+              inputProps={{ min: 1 }}
             />
             <FormControl fullWidth>
               <InputLabel>Priority</InputLabel>
@@ -391,13 +400,22 @@ const Projects: React.FC = () => {
               value={formData.budget}
               onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
               fullWidth
+              required
+              inputProps={{ min: 0 }}
             />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editingProject ? 'Update' : 'Add'}
+          <Button onClick={handleClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            variant="contained" 
+            disabled={submitting}
+            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+          >
+            {submitting ? 'Saving...' : (editingProject ? 'Update' : 'Add')}
           </Button>
         </DialogActions>
       </Dialog>

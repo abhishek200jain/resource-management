@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -24,72 +24,27 @@ import {
   Select,
   MenuItem,
   Avatar,
-  AvatarGroup,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Assignment as AssignmentIcon,
-  Person as PersonIcon,
   Business as BusinessIcon,
 } from '@mui/icons-material';
-
-interface Assignment {
-  id: string;
-  engineerId: string;
-  engineerName: string;
-  projectId: string;
-  projectName: string;
-  role: string;
-  startDate: string;
-  endDate: string;
-  allocation: number; // percentage
-  status: 'Active' | 'Completed' | 'On Hold';
-}
+import { toast } from 'react-toastify';
+import { assignmentService, type Assignment } from '../services/assignmentService';
+import { engineerService, type Engineer } from '../services/engineerService';
+import { projectService, type Project } from '../services/projectService';
 
 const Assignments: React.FC = () => {
-  const [assignments, setAssignments] = useState<Assignment[]>([
-    {
-      id: '1',
-      engineerId: '1',
-      engineerName: 'John Doe',
-      projectId: '1',
-      projectName: 'Project Alpha',
-      role: 'Frontend Developer',
-      startDate: '2024-01-15',
-      endDate: '2024-06-30',
-      allocation: 100,
-      status: 'Active',
-    },
-    {
-      id: '2',
-      engineerId: '2',
-      engineerName: 'Jane Smith',
-      projectId: '1',
-      projectName: 'Project Alpha',
-      role: 'Backend Developer',
-      startDate: '2024-01-15',
-      endDate: '2024-06-30',
-      allocation: 80,
-      status: 'Active',
-    },
-    {
-      id: '3',
-      engineerId: '3',
-      engineerName: 'Mike Johnson',
-      projectId: '3',
-      projectName: 'Project Gamma',
-      role: 'Full Stack Developer',
-      startDate: '2023-10-01',
-      endDate: '2024-02-28',
-      allocation: 100,
-      status: 'Completed',
-    },
-  ]);
-
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [engineers, setEngineers] = useState<Engineer[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     engineerId: '',
     engineerName: '',
@@ -102,18 +57,32 @@ const Assignments: React.FC = () => {
     status: 'Active' as Assignment['status'],
   });
 
-  // Mock data for engineers and projects
-  const engineers = [
-    { id: '1', name: 'John Doe', skills: ['React', 'TypeScript'] },
-    { id: '2', name: 'Jane Smith', skills: ['Python', 'Django'] },
-    { id: '3', name: 'Mike Johnson', skills: ['Java', 'Spring'] },
-  ];
+  // Subscribe to real-time updates for all data
+  useEffect(() => {
+    const unsubscribeAssignments = assignmentService.subscribeToAssignments((assignments) => {
+      setAssignments(assignments);
+    });
 
-  const projects = [
-    { id: '1', name: 'Project Alpha', status: 'In Progress' },
-    { id: '2', name: 'Project Beta', status: 'Planning' },
-    { id: '3', name: 'Project Gamma', status: 'Completed' },
-  ];
+    const unsubscribeEngineers = engineerService.subscribeToEngineers((engineers) => {
+      setEngineers(engineers);
+    });
+
+    const unsubscribeProjects = projectService.subscribeToProjects((projects) => {
+      setProjects(projects);
+    });
+
+    // Set loading to false after initial data load
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+
+    return () => {
+      unsubscribeAssignments();
+      unsubscribeEngineers();
+      unsubscribeProjects();
+      clearTimeout(timer);
+    };
+  }, []);
 
   const handleOpen = (assignment?: Assignment) => {
     if (assignment) {
@@ -149,6 +118,7 @@ const Assignments: React.FC = () => {
   const handleClose = () => {
     setOpen(false);
     setEditingAssignment(null);
+    setSubmitting(false);
   };
 
   const handleEngineerChange = (engineerId: string) => {
@@ -169,31 +139,53 @@ const Assignments: React.FC = () => {
     });
   };
 
-  const handleSubmit = () => {
-    const newAssignment: Assignment = {
-      id: editingAssignment?.id || Date.now().toString(),
-      engineerId: formData.engineerId,
-      engineerName: formData.engineerName,
-      projectId: formData.projectId,
-      projectName: formData.projectName,
-      role: formData.role,
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      allocation: parseInt(formData.allocation),
-      status: formData.status,
-    };
-
-    if (editingAssignment) {
-      setAssignments(assignments.map(assign => assign.id === editingAssignment.id ? newAssignment : assign));
-    } else {
-      setAssignments([...assignments, newAssignment]);
+  const handleSubmit = async () => {
+    if (!formData.engineerId || !formData.projectId || !formData.role || !formData.startDate || !formData.endDate || !formData.allocation) {
+      toast.error('Please fill in all required fields');
+      return;
     }
 
-    handleClose();
+    setSubmitting(true);
+    try {
+      const assignmentData = {
+        engineerId: formData.engineerId,
+        engineerName: formData.engineerName,
+        projectId: formData.projectId,
+        projectName: formData.projectName,
+        role: formData.role,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        allocation: parseInt(formData.allocation),
+        status: formData.status,
+      };
+
+      if (editingAssignment) {
+        await assignmentService.updateAssignment(editingAssignment.id!, assignmentData);
+        toast.success('Assignment updated successfully!');
+      } else {
+        await assignmentService.addAssignment(assignmentData);
+        toast.success('Assignment created successfully!');
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Error saving assignment:', error);
+      toast.error(editingAssignment ? 'Failed to update assignment' : 'Failed to create assignment');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setAssignments(assignments.filter(assign => assign.id !== id));
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this assignment?')) {
+      try {
+        await assignmentService.deleteAssignment(id);
+        toast.success('Assignment deleted successfully!');
+      } catch (error) {
+        console.error('Error deleting assignment:', error);
+        toast.error('Failed to delete assignment');
+      }
+    }
   };
 
   const getStatusColor = (status: Assignment['status']) => {
@@ -210,6 +202,14 @@ const Assignments: React.FC = () => {
   const avgAllocation = assignments.length > 0 
     ? assignments.reduce((sum, a) => sum + a.allocation, 0) / assignments.length 
     : 0;
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -265,10 +265,27 @@ const Assignments: React.FC = () => {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => handleOpen()}
+          disabled={engineers.length === 0 || projects.length === 0}
         >
           Create Assignment
         </Button>
       </Box>
+
+      {engineers.length === 0 && (
+        <Paper sx={{ p: 3, mb: 2 }}>
+          <Typography color="warning.main" align="center">
+            No engineers available. Please add engineers first.
+          </Typography>
+        </Paper>
+      )}
+
+      {projects.length === 0 && (
+        <Paper sx={{ p: 3, mb: 2 }}>
+          <Typography color="warning.main" align="center">
+            No projects available. Please add projects first.
+          </Typography>
+        </Paper>
+      )}
 
       <TableContainer component={Paper}>
         <Table>
@@ -284,50 +301,58 @@ const Assignments: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {assignments.map((assignment) => (
-              <TableRow key={assignment.id}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
-                      {assignment.engineerName.charAt(0)}
-                    </Avatar>
-                    {assignment.engineerName}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <BusinessIcon sx={{ mr: 1 }} />
-                    {assignment.projectName}
-                  </Box>
-                </TableCell>
-                <TableCell>{assignment.role}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={`${assignment.allocation}%`}
-                    color={assignment.allocation === 100 ? 'success' : 'primary'}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  {new Date(assignment.startDate).toLocaleDateString()} - {new Date(assignment.endDate).toLocaleDateString()}
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={assignment.status}
-                    color={getStatusColor(assignment.status)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  <IconButton onClick={() => handleOpen(assignment)} size="small">
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton onClick={() => handleDelete(assignment.id)} size="small" color="error">
-                    <DeleteIcon />
-                  </IconButton>
+            {assignments.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  <Typography color="textSecondary">No assignments found</Typography>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              assignments.map((assignment) => (
+                <TableRow key={assignment.id}>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
+                        {assignment.engineerName.charAt(0)}
+                      </Avatar>
+                      {assignment.engineerName}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <BusinessIcon sx={{ mr: 1 }} />
+                      {assignment.projectName}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{assignment.role}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={`${assignment.allocation}%`}
+                      color={assignment.allocation === 100 ? 'success' : 'primary'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {new Date(assignment.startDate).toLocaleDateString()} - {new Date(assignment.endDate).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={assignment.status}
+                      color={getStatusColor(assignment.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <IconButton onClick={() => handleOpen(assignment)} size="small">
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton onClick={() => handleDelete(assignment.id!)} size="small" color="error">
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
@@ -339,7 +364,7 @@ const Assignments: React.FC = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <FormControl fullWidth>
+            <FormControl fullWidth required>
               <InputLabel>Engineer</InputLabel>
               <Select
                 value={formData.engineerId}
@@ -348,12 +373,12 @@ const Assignments: React.FC = () => {
               >
                 {engineers.map((engineer) => (
                   <MenuItem key={engineer.id} value={engineer.id}>
-                    {engineer.name}
+                    {engineer.name} - {engineer.skills.join(', ')}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <FormControl fullWidth>
+            <FormControl fullWidth required>
               <InputLabel>Project</InputLabel>
               <Select
                 value={formData.projectId}
@@ -362,7 +387,7 @@ const Assignments: React.FC = () => {
               >
                 {projects.map((project) => (
                   <MenuItem key={project.id} value={project.id}>
-                    {project.name}
+                    {project.name} - {project.status}
                   </MenuItem>
                 ))}
               </Select>
@@ -372,6 +397,7 @@ const Assignments: React.FC = () => {
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               fullWidth
+              required
             />
             <TextField
               label="Start Date"
@@ -379,6 +405,7 @@ const Assignments: React.FC = () => {
               value={formData.startDate}
               onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
               fullWidth
+              required
               InputLabelProps={{ shrink: true }}
             />
             <TextField
@@ -387,6 +414,7 @@ const Assignments: React.FC = () => {
               value={formData.endDate}
               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
               fullWidth
+              required
               InputLabelProps={{ shrink: true }}
             />
             <TextField
@@ -395,6 +423,7 @@ const Assignments: React.FC = () => {
               value={formData.allocation}
               onChange={(e) => setFormData({ ...formData, allocation: e.target.value })}
               fullWidth
+              required
               inputProps={{ min: 1, max: 100 }}
             />
             <FormControl fullWidth>
@@ -412,9 +441,16 @@ const Assignments: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editingAssignment ? 'Update' : 'Create'}
+          <Button onClick={handleClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            variant="contained" 
+            disabled={submitting}
+            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+          >
+            {submitting ? 'Saving...' : (editingAssignment ? 'Update' : 'Create')}
           </Button>
         </DialogActions>
       </Dialog>

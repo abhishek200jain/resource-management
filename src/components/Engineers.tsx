@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -19,6 +19,9 @@ import {
   Chip,
   Card,
   CardContent,
+  CircularProgress,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -26,57 +29,33 @@ import {
   Delete as DeleteIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-
-interface Engineer {
-  id: string;
-  name: string;
-  email: string;
-  skills: string[];
-  experience: number;
-  availability: boolean;
-  currentProject?: string;
-}
+import { toast } from 'react-toastify';
+import { engineerService, type Engineer } from '../services/engineerService';
 
 const Engineers: React.FC = () => {
-  const [engineers, setEngineers] = useState<Engineer[]>([
-    {
-      id: '1',
-      name: 'John Doe',
-      email: 'john.doe@company.com',
-      skills: ['React', 'TypeScript', 'Node.js'],
-      experience: 5,
-      availability: true,
-      currentProject: 'Project Alpha',
-    },
-    {
-      id: '2',
-      name: 'Jane Smith',
-      email: 'jane.smith@company.com',
-      skills: ['Python', 'Django', 'PostgreSQL'],
-      experience: 3,
-      availability: false,
-      currentProject: 'Project Beta',
-    },
-    {
-      id: '3',
-      name: 'Mike Johnson',
-      email: 'mike.johnson@company.com',
-      skills: ['Java', 'Spring Boot', 'MongoDB'],
-      experience: 7,
-      availability: true,
-    },
-  ]);
-
+  const [engineers, setEngineers] = useState<Engineer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingEngineer, setEditingEngineer] = useState<Engineer | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     skills: '',
     experience: '',
     availability: true,
-    currentProject: '',
+    currentProjects: '',
   });
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    const unsubscribe = engineerService.subscribeToEngineers((engineers) => {
+      setEngineers(engineers);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleOpen = (engineer?: Engineer) => {
     if (engineer) {
@@ -87,7 +66,7 @@ const Engineers: React.FC = () => {
         skills: engineer.skills.join(', '),
         experience: engineer.experience.toString(),
         availability: engineer.availability,
-        currentProject: engineer.currentProject || '',
+        currentProjects: engineer.currentProjects?.join(', ') || '',
       });
     } else {
       setEditingEngineer(null);
@@ -97,7 +76,7 @@ const Engineers: React.FC = () => {
         skills: '',
         experience: '',
         availability: true,
-        currentProject: '',
+        currentProjects: '',
       });
     }
     setOpen(true);
@@ -106,34 +85,67 @@ const Engineers: React.FC = () => {
   const handleClose = () => {
     setOpen(false);
     setEditingEngineer(null);
+    setSubmitting(false);
   };
 
-  const handleSubmit = () => {
-    const newEngineer: Engineer = {
-      id: editingEngineer?.id || Date.now().toString(),
-      name: formData.name,
-      email: formData.email,
-      skills: formData.skills.split(',').map(skill => skill.trim()),
-      experience: parseInt(formData.experience),
-      availability: formData.availability,
-      currentProject: formData.currentProject || undefined,
-    };
-
-    if (editingEngineer) {
-      setEngineers(engineers.map(eng => eng.id === editingEngineer.id ? newEngineer : eng));
-    } else {
-      setEngineers([...engineers, newEngineer]);
+  const handleSubmit = async () => {
+    if (!formData.name || !formData.email || !formData.skills || !formData.experience) {
+      toast.error('Please fill in all required fields');
+      return;
     }
 
-    handleClose();
+    setSubmitting(true);
+    try {
+      const engineerData = {
+        name: formData.name,
+        email: formData.email,
+        skills: formData.skills.split(',').map(skill => skill.trim()).filter(skill => skill),
+        experience: parseInt(formData.experience),
+        availability: formData.availability,
+        currentProjects: formData.currentProjects 
+          ? formData.currentProjects.split(',').map(project => project.trim()).filter(project => project)
+          : [],
+      };
+
+      if (editingEngineer) {
+        await engineerService.updateEngineer(editingEngineer.id!, engineerData);
+        toast.success('Engineer updated successfully!');
+      } else {
+        await engineerService.addEngineer(engineerData);
+        toast.success('Engineer added successfully!');
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Error saving engineer:', error);
+      toast.error(editingEngineer ? 'Failed to update engineer' : 'Failed to add engineer');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setEngineers(engineers.filter(eng => eng.id !== id));
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this engineer?')) {
+      try {
+        await engineerService.deleteEngineer(id);
+        toast.success('Engineer deleted successfully!');
+      } catch (error) {
+        console.error('Error deleting engineer:', error);
+        toast.error('Failed to delete engineer');
+      }
+    }
   };
 
   const availableEngineers = engineers.filter(eng => eng.availability).length;
   const totalEngineers = engineers.length;
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -177,7 +189,10 @@ const Engineers: React.FC = () => {
               Avg Experience
             </Typography>
             <Typography variant="h4">
-              {(engineers.reduce((sum, eng) => sum + eng.experience, 0) / totalEngineers).toFixed(1)}y
+              {totalEngineers > 0 
+                ? (engineers.reduce((sum, eng) => sum + eng.experience, 0) / totalEngineers).toFixed(1)
+                : '0'
+              }y
             </Typography>
           </CardContent>
         </Card>
@@ -203,46 +218,64 @@ const Engineers: React.FC = () => {
               <TableCell>Skills</TableCell>
               <TableCell>Experience</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Current Project</TableCell>
+              <TableCell>Current Projects</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {engineers.map((engineer) => (
-              <TableRow key={engineer.id}>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <PersonIcon sx={{ mr: 1 }} />
-                    {engineer.name}
-                  </Box>
-                </TableCell>
-                <TableCell>{engineer.email}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {engineer.skills.map((skill, index) => (
-                      <Chip key={index} label={skill} size="small" />
-                    ))}
-                  </Box>
-                </TableCell>
-                <TableCell>{engineer.experience} years</TableCell>
-                <TableCell>
-                  <Chip
-                    label={engineer.availability ? 'Available' : 'Assigned'}
-                    color={engineer.availability ? 'success' : 'warning'}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>{engineer.currentProject || '-'}</TableCell>
-                <TableCell>
-                  <IconButton onClick={() => handleOpen(engineer)} size="small">
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton onClick={() => handleDelete(engineer.id)} size="small" color="error">
-                    <DeleteIcon />
-                  </IconButton>
+            {engineers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  <Typography color="textSecondary">No engineers found</Typography>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              engineers.map((engineer) => (
+                <TableRow key={engineer.id}>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <PersonIcon sx={{ mr: 1 }} />
+                      {engineer.name}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{engineer.email}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {engineer.skills.map((skill, index) => (
+                        <Chip key={index} label={skill} size="small" />
+                      ))}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{engineer.experience} years</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={engineer.availability ? 'Available' : 'Assigned'}
+                      color={engineer.availability ? 'success' : 'warning'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {engineer.currentProjects && engineer.currentProjects.length > 0 ? (
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                        {engineer.currentProjects.map((project, index) => (
+                          <Chip key={index} label={project} size="small" variant="outlined" />
+                        ))}
+                      </Box>
+                    ) : (
+                      '-'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <IconButton onClick={() => handleOpen(engineer)} size="small">
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton onClick={() => handleDelete(engineer.id!)} size="small" color="error">
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>
@@ -259,6 +292,7 @@ const Engineers: React.FC = () => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               fullWidth
+              required
             />
             <TextField
               label="Email"
@@ -266,12 +300,14 @@ const Engineers: React.FC = () => {
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               fullWidth
+              required
             />
             <TextField
               label="Skills (comma-separated)"
               value={formData.skills}
               onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
               fullWidth
+              required
               helperText="Enter skills separated by commas"
             />
             <TextField
@@ -280,19 +316,38 @@ const Engineers: React.FC = () => {
               value={formData.experience}
               onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
               fullWidth
+              required
+              inputProps={{ min: 0 }}
             />
             <TextField
-              label="Current Project (optional)"
-              value={formData.currentProject}
-              onChange={(e) => setFormData({ ...formData, currentProject: e.target.value })}
+              label="Current Projects (comma-separated, optional)"
+              value={formData.currentProjects}
+              onChange={(e) => setFormData({ ...formData, currentProjects: e.target.value })}
               fullWidth
+              helperText="Enter project names separated by commas"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formData.availability}
+                  onChange={(e) => setFormData({ ...formData, availability: e.target.checked })}
+                />
+              }
+              label="Available for new assignments"
             />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {editingEngineer ? 'Update' : 'Add'}
+          <Button onClick={handleClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            variant="contained" 
+            disabled={submitting}
+            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+          >
+            {submitting ? 'Saving...' : (editingEngineer ? 'Update' : 'Add')}
           </Button>
         </DialogActions>
       </Dialog>

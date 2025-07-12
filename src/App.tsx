@@ -1,21 +1,28 @@
   import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import Login from './components/Login';
+import Signup from './components/Signup';
 import Dashboard from './components/Dashboard';
 import Engineers from './components/Engineers';
 import Projects from './components/Projects';
 import Assignments from './components/Assignments';
 import Layout from './components/Layout';
+import FirebaseTest from './components/FirebaseTest';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 function PrivateRoute({ children }: { children: React.ReactElement }) {
-  const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-  return isLoggedIn ? children : <Navigate to="/" />;
+  const { currentUser } = useAuth();
+  return currentUser ? children : <Navigate to="/" />;
 }
 
-function App() {
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/test" element={<FirebaseTest />} />
       <Route
         path="/dashboard"
         element={
@@ -58,6 +65,25 @@ function App() {
       />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
+    </AuthProvider>
   );
 }
 
