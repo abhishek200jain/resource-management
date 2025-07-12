@@ -1,28 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Typography,
-  Paper,
-  Card,
-  CardContent,
-  Grid,
-  List,
+  Typography, Card,
+  CardContent, List,
   ListItem,
   ListItemText,
   ListItemIcon,
   Divider,
   Chip,
   Avatar,
-  CircularProgress,
+  CircularProgress
 } from '@mui/material';
 import {
   People as PeopleIcon,
   Business as BusinessIcon,
   Assignment as AssignmentIcon,
-  TrendingUp as TrendingUpIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-  Schedule as ScheduleIcon,
+  TrendingUp as TrendingUpIcon, Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import { engineerService, type Engineer } from '../services/engineerService';
 import { projectService, type Project } from '../services/projectService';
