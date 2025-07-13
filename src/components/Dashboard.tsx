@@ -17,6 +17,9 @@ import {
   Assignment as AssignmentIcon,
   TrendingUp as TrendingUpIcon, Schedule as ScheduleIcon
 } from '@mui/icons-material';
+import {
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from 'recharts';
 import { engineerService, type Engineer } from '../services/engineerService';
 import { projectService, type Project } from '../services/projectService';
 import { assignmentService, type Assignment } from '../services/assignmentService';
@@ -107,6 +110,85 @@ const Dashboard: React.FC = () => {
     return completedDate.getMonth() === today.getMonth() && 
            completedDate.getFullYear() === today.getFullYear();
   }).length;
+
+  // ===== SIMPLE CHART DATA FUNCTIONS =====
+  
+  // 1. Simple Engineer Count by Experience
+  const getEngineerExperienceData = () => {
+    const experienceGroups: { [key: string]: number } = {
+      '0-2 years': 0,
+      '3-5 years': 0,
+      '6-10 years': 0,
+      '10+ years': 0
+    };
+
+    engineers.forEach(engineer => {
+      if (engineer.experience <= 2) experienceGroups['0-2 years']++;
+      else if (engineer.experience <= 5) experienceGroups['3-5 years']++;
+      else if (engineer.experience <= 10) experienceGroups['6-10 years']++;
+      else experienceGroups['10+ years']++;
+    });
+
+    return Object.entries(experienceGroups).map(([range, count]) => ({
+      experience: range,
+      count: count
+    }));
+  };
+
+  // 2. Simple Project Status Count
+  const getProjectStatusData = () => {
+    const statusCounts: { [key: string]: number } = {};
+    projects.forEach(project => {
+      statusCounts[project.status] = (statusCounts[project.status] || 0) + 1;
+    });
+
+    return Object.entries(statusCounts).map(([status, count]) => ({
+      status: status,
+      count: count,
+      color: status === 'In Progress' ? '#4caf50' : 
+             status === 'Completed' ? '#2196f3' : 
+             status === 'Planning' ? '#ff9800' : '#f44336'
+    }));
+  };
+
+  // 3. Simple Engineer Allocation (Top 5)
+  const getEngineerAllocationData = () => {
+    const engineerAllocation: { [key: string]: number } = {};
+    
+    assignments.forEach(assignment => {
+      if (assignment.status === 'Active') {
+        engineerAllocation[assignment.engineerName] = 
+          (engineerAllocation[assignment.engineerName] || 0) + assignment.allocation;
+      }
+    });
+
+    return Object.entries(engineerAllocation)
+      .map(([name, allocation]) => ({
+        name: name.length > 12 ? name.substring(0, 12) + '...' : name,
+        allocation: Math.min(allocation, 100)
+      }))
+      .sort((a, b) => b.allocation - a.allocation)
+      .slice(0, 5); // Top 5 engineers
+  };
+
+  // 4. Simple Skills Count
+  const getSkillsCountData = () => {
+    const skillCounts: { [key: string]: number } = {};
+    engineers.forEach(engineer => {
+      engineer.skills.forEach(skill => {
+        skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+      });
+    });
+
+    return Object.entries(skillCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 6) // Top 6 skills
+      .map(([skill, count], index) => ({
+        skill: skill,
+        count: count,
+        color: ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'][index]
+      }));
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -404,6 +486,139 @@ const Dashboard: React.FC = () => {
                   ));
                 })()}
               </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Box>
+
+      {/* ===== SIMPLE CHARTS SECTION ===== */}
+      
+      {/* 1. Engineer Experience Distribution */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Engineers by Experience Level
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            How many engineers we have in each experience group
+          </Typography>
+          {getEngineerExperienceData().length === 0 ? (
+            <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+              No engineers found
+            </Typography>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={getEngineerExperienceData()}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="experience" />
+                <YAxis />
+                <Tooltip formatter={(value: number) => [value, 'Engineers']} />
+                <Bar dataKey="count" fill="#8884d8" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 2. Project Status Pie Chart */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Project Status Distribution
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            How many projects are in each status
+          </Typography>
+          {getProjectStatusData().length === 0 ? (
+            <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+              No projects found
+            </Typography>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={getProjectStatusData()}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ status, count }) => `${status}: ${count}`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="count"
+                >
+                  {getProjectStatusData().map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 3. Engineer Allocation & Skills */}
+      <Box sx={{ display: 'flex', gap: 3, mt: 3, flexWrap: 'wrap' }}>
+        {/* Engineer Allocation Bar Chart */}
+        <Card sx={{ flex: 1, minWidth: 400 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Top 5 Engineers by Workload
+            </Typography>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+              Engineers with highest allocation percentage
+            </Typography>
+            {getEngineerAllocationData().length === 0 ? (
+              <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                No active assignments found
+              </Typography>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={getEngineerAllocationData()}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip formatter={(value: number) => [`${value}%`, 'Allocation']} />
+                  <Bar dataKey="allocation" fill="#82ca9d" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Skills Distribution Pie Chart */}
+        <Card sx={{ flex: 1, minWidth: 400 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Top Skills in Team
+            </Typography>
+            <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+              Most common skills among engineers
+            </Typography>
+            {getSkillsCountData().length === 0 ? (
+              <Typography color="textSecondary" align="center" sx={{ py: 4 }}>
+                No skills found
+              </Typography>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={getSkillsCountData()}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ skill, count }) => `${skill}: ${count}`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="count"
+                  >
+                    {getSkillsCountData().map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
